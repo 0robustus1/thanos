@@ -984,15 +984,19 @@ func (c *BucketCompactor) Compact(ctx context.Context) error {
 						continue
 					}
 
+					reportedErr := err
+
 					if IsIssue347Error(err) {
+						level.Warn(c.logger).Log("msg", "encountered prometheus issue 347")
 						if err := RepairIssue347(workCtx, c.logger, c.bkt, err); err == nil {
 							mtx.Lock()
 							finishedAllGroups = false
 							mtx.Unlock()
 							continue
 						}
+						reportedErr = errors.Wrap(reportedErr, fmt.Sprintf("Failed to resolve issue 347 (%v)", err))
 					}
-					errChan <- errors.Wrap(err, fmt.Sprintf("compaction failed for group %s", g.Key()))
+					errChan <- errors.Wrap(reportedErr, fmt.Sprintf("compaction failed for group %s", g.Key()))
 					return
 				}
 			}()
