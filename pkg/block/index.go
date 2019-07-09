@@ -256,6 +256,10 @@ type Stats struct {
 	// OutOfOrderLabels represents the number of postings that contained out
 	// of order labels, a bug present in Prometheus 2.8.0 and below.
 	OutOfOrderLabels int
+
+	ChunksReferencedInIndex     []string
+	ChunksReferencedInDirectory []string
+	ZeroedReferenceChunks       int
 }
 
 // PrometheusIssue5372Err returns an error if the Stats object indicates
@@ -331,6 +335,32 @@ func (i Stats) AnyErr() error {
 	return nil
 }
 
+// GatherAllIndexIssueStats returns useful counters as well as outsider chunks (chunks outside of block time range) that
+// helps to assess index health.
+// It considers https://github.com/prometheus/tsdb/issues/347 as something that Thanos can handle.
+// See Stats.Issue347OutsideChunks for details.
+func GatherAllIndexIssueStats(logger log.Logger, blockDirectory string, minTime int64, maxTime int64) (stats Stats, err error) {
+	fn := filepath.Join(blockDirectory, IndexFilename)
+	stats, err = GatherIndexIssueStats(logger, fn, minTime, maxTime)
+	chunkDir := filepath.Join(blockDirectory, ChunksDirname)
+	if _, statErr := os.Stat(chunkDir); os.IsNotExist(statErr) {
+		return stats, errors.Wrap(err, "could not find chunks directory")
+	}
+	filepath.Walk(chunkDir, func(path string, info os.FileInfo, pathErr error) error {
+		if info.Name() == ChunksDirname {
+			return nil
+		}
+		for _, chunkRef := range stats.ChunksReferencedInDirectory {
+			if info.Name() == chunkRef {
+				return nil
+			}
+		}
+		stats.ChunksReferencedInDirectory = append(stats.ChunksReferencedInDirectory, info.Name())
+		return nil
+	})
+	return stats, err
+}
+
 // GatherIndexIssueStats returns useful counters as well as outsider chunks (chunks outside of block time range) that
 // helps to assess index health.
 // It considers https://github.com/prometheus/tsdb/issues/347 as something that Thanos can handle.
@@ -387,6 +417,23 @@ func GatherIndexIssueStats(logger log.Logger, fn string, minTime int64, maxTime 
 		ooo := 0
 		// Per chunk in series.
 		for i, c := range chks {
+			if c.Ref == 0 {
+				stats.ZeroedReferenceChunks++
+			}
+			referencedAlready := false
+			// c.Ref contains a reference indicating the chunk file and the offset within the file
+			// the 4 most significant bytes denote the seqence id.
+			// the chunk file is created by using the sequence number adding 1 to it and
+			// padding it with zeroes to get a 6 digit number (base 10).
+			ref := fmt.Sprintf("%06d", (c.Ref>>32)+1)
+			for _, chunkRef := range stats.ChunksReferencedInIndex {
+				if ref == chunkRef {
+					referencedAlready = true
+				}
+			}
+			if !referencedAlready {
+				stats.ChunksReferencedInIndex = append(stats.ChunksReferencedInIndex, ref)
+			}
 			// Chunk vs the block ranges.
 			if c.MinTime < minTime || c.MaxTime > maxTime {
 				stats.OutsideChunks++

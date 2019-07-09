@@ -803,7 +803,7 @@ func (cg *Group) compact(ctx context.Context, dir string, comp tsdb.Compactor) (
 		}
 
 		// Ensure all input blocks are valid.
-		stats, err := block.GatherIndexIssueStats(cg.logger, filepath.Join(pdir, block.IndexFilename), meta.MinTime, meta.MaxTime)
+		stats, err := block.GatherAllIndexIssueStats(cg.logger, pdir, meta.MinTime, meta.MaxTime)
 		if err != nil {
 			return false, ulid.ULID{}, errors.Wrapf(err, "gather index issues for block %s", pdir)
 		}
@@ -819,6 +819,38 @@ func (cg *Group) compact(ctx context.Context, dir string, comp tsdb.Compactor) (
 		if err := stats.PrometheusIssue5372Err(); !cg.acceptMalformedIndex && err != nil {
 			return false, ulid.ULID{}, errors.Wrapf(err,
 				"block id %s, try running with --debug.accept-malformed-index", id)
+		}
+		missingInFiles := 0
+		for _, ref := range stats.ChunksReferencedInIndex {
+			present := false
+			for _, other := range stats.ChunksReferencedInDirectory {
+				if ref == other {
+					present = true
+				}
+			}
+			if !present {
+				missingInFiles = missingInFiles + 1
+			}
+		}
+		missingInIndex := 0
+		for _, ref := range stats.ChunksReferencedInDirectory {
+			present := false
+			for _, other := range stats.ChunksReferencedInIndex {
+				if ref == other {
+					present = true
+				}
+			}
+			if !present {
+				missingInIndex = missingInIndex + 1
+			}
+		}
+
+		level.Debug(cg.logger).Log("msg", fmt.Sprintf("found %d chunks with a zero reference", stats.ZeroedReferenceChunks))
+
+		if missingInIndex != 0 || missingInFiles != 0 {
+			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks missing in index: %d", missingInIndex))
+			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks missing in chunks/: %d", missingInFiles))
+			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks referenced in index: %v, Chunks referenced in chunks/ dir: %v", stats.ChunksReferencedInIndex, stats.ChunksReferencedInDirectory))
 		}
 	}
 	level.Debug(cg.logger).Log("msg", "downloaded and verified blocks",
