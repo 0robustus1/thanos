@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	gmetrics "github.com/armon/go-metrics"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	gprom "github.com/armon/go-metrics/prometheus"
 	"github.com/go-kit/kit/log"
@@ -28,7 +29,6 @@ import (
 	"github.com/improbable-eng/thanos/pkg/runutil"
 	"github.com/improbable-eng/thanos/pkg/tracing"
 	"github.com/oklog/run"
-	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
