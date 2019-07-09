@@ -772,6 +772,7 @@ func (cg *Group) compact(ctx context.Context, dir string, comp tsdb.Compactor) (
 	// Once we have a plan we need to download the actual data.
 	begin := time.Now()
 
+	executablePlan := []string{}
 	for _, pdir := range plan {
 		meta, err := metadata.Read(pdir)
 		if err != nil {
@@ -820,45 +821,20 @@ func (cg *Group) compact(ctx context.Context, dir string, comp tsdb.Compactor) (
 			return false, ulid.ULID{}, errors.Wrapf(err,
 				"block id %s, try running with --debug.accept-malformed-index", id)
 		}
-		missingInFiles := 0
-		for _, ref := range stats.ChunksReferencedInIndex {
-			present := false
-			for _, other := range stats.ChunksReferencedInDirectory {
-				if ref == other {
-					present = true
-				}
-			}
-			if !present {
-				missingInFiles = missingInFiles + 1
-			}
-		}
-		missingInIndex := 0
-		for _, ref := range stats.ChunksReferencedInDirectory {
-			present := false
-			for _, other := range stats.ChunksReferencedInIndex {
-				if ref == other {
-					present = true
-				}
-			}
-			if !present {
-				missingInIndex = missingInIndex + 1
-			}
+
+		if err := stats.PartiallyWrittenBlockErr(); err != nil {
+			level.Warn(cg.logger).Log("err", err.Error(), "msg", fmt.Sprintf("skipping block %s", pdir))
+			continue
 		}
 
-		level.Debug(cg.logger).Log("msg", fmt.Sprintf("found %d chunks with a zero reference", stats.ZeroedReferenceChunks))
-
-		if missingInIndex != 0 || missingInFiles != 0 {
-			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks missing in index: %d", missingInIndex))
-			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks missing in chunks/: %d", missingInFiles))
-			level.Debug(cg.logger).Log("msg", fmt.Sprintf("Chunks referenced in index: %v, Chunks referenced in chunks/ dir: %v", stats.ChunksReferencedInIndex, stats.ChunksReferencedInDirectory))
-		}
+		executablePlan = append(executablePlan, pdir)
 	}
 	level.Debug(cg.logger).Log("msg", "downloaded and verified blocks",
 		"blocks", fmt.Sprintf("%v", plan), "duration", time.Since(begin))
 
 	begin = time.Now()
 
-	compID, err = comp.Compact(dir, plan, nil)
+	compID, err = comp.Compact(dir, executablePlan, nil)
 	if err != nil {
 		return false, ulid.ULID{}, halt(errors.Wrapf(err, "compact blocks %v", plan))
 	}

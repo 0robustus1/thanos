@@ -281,6 +281,37 @@ func (i Stats) Issue347OutsideChunksErr() error {
 	return nil
 }
 
+func (i Stats) PartiallyWrittenBlockErr() error {
+	missingInFiles := 0
+	for _, ref := range i.ChunksReferencedInIndex {
+		present := false
+		for _, other := range i.ChunksReferencedInDirectory {
+			if ref == other {
+				present = true
+			}
+		}
+		if !present {
+			missingInFiles = missingInFiles + 1
+		}
+	}
+	missingInIndex := 0
+	for _, ref := range i.ChunksReferencedInDirectory {
+		present := false
+		for _, other := range i.ChunksReferencedInIndex {
+			if ref == other {
+				present = true
+			}
+		}
+		if !present {
+			missingInIndex = missingInIndex + 1
+		}
+	}
+	if missingInIndex != 0 || missingInFiles != 0 {
+		return errors.Errorf("Found mismatch between chunks and index, block is corrupted (missing in index: %d, missing in directory: %d)", missingInIndex, missingInFiles)
+	}
+	return nil
+}
+
 // CriticalErr returns error if stats indicates critical block issue, that might solved only by manual repair procedure.
 func (i Stats) CriticalErr() error {
 	var errMsg []string
