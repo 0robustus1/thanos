@@ -260,7 +260,6 @@ type Stats struct {
 	IndexMissing                bool
 	ChunksReferencedInIndex     []string
 	ChunksReferencedInDirectory []string
-	ZeroedReferenceChunks       int
 }
 
 // PrometheusIssue5372Err returns an error if the Stats object indicates
@@ -459,9 +458,6 @@ func GatherIndexIssueStats(logger log.Logger, fn string, minTime int64, maxTime 
 		ooo := 0
 		// Per chunk in series.
 		for i, c := range chks {
-			if c.Ref == 0 {
-				stats.ZeroedReferenceChunks++
-			}
 			referencedAlready := false
 			// c.Ref contains a reference indicating the chunk file and the offset within the file
 			// the 4 most significant bytes denote the seqence id.
