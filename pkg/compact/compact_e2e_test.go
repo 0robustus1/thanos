@@ -247,6 +247,7 @@ func TestGroup_Compact_e2e(t *testing.T) {
 			false,
 			metrics.compactions.WithLabelValues(""),
 			metrics.compactionFailures.WithLabelValues(""),
+			metrics.corruptedBlocks.WithLabelValues(""),
 			metrics.garbageCollectedBlocks,
 		)
 		testutil.Ok(t, err)
