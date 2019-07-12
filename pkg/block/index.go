@@ -257,6 +257,7 @@ type Stats struct {
 	// of order labels, a bug present in Prometheus 2.8.0 and below.
 	OutOfOrderLabels int
 
+	IndexMissing                bool
 	ChunksReferencedInIndex     []string
 	ChunksReferencedInDirectory []string
 	ZeroedReferenceChunks       int
@@ -282,6 +283,9 @@ func (i Stats) Issue347OutsideChunksErr() error {
 }
 
 func (i Stats) PartiallyWrittenBlockErr() error {
+	if i.IndexMissing {
+		return errors.Errorf("index file is missing, block is corrupted")
+	}
 	missingInFiles := 0
 	for _, ref := range i.ChunksReferencedInIndex {
 		present := false
@@ -372,6 +376,13 @@ func (i Stats) AnyErr() error {
 // See Stats.Issue347OutsideChunks for details.
 func GatherAllIndexIssueStats(logger log.Logger, blockDirectory string, minTime int64, maxTime int64) (stats Stats, err error) {
 	fn := filepath.Join(blockDirectory, IndexFilename)
+	_, err = os.Stat(fn)
+	if os.IsNotExist(err) {
+		return Stats{
+			IndexMissing: true,
+		}, nil
+	}
+
 	stats, err = GatherIndexIssueStats(logger, fn, minTime, maxTime)
 	chunkDir := filepath.Join(blockDirectory, ChunksDirname)
 	if _, statErr := os.Stat(chunkDir); os.IsNotExist(statErr) {
