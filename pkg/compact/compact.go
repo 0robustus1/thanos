@@ -63,6 +63,7 @@ type syncerMetrics struct {
 	garbageCollectionDuration prometheus.Histogram
 	compactions               *prometheus.CounterVec
 	compactionFailures        *prometheus.CounterVec
+	corruptedBlocks           *prometheus.CounterVec
 	indexCacheBlocks          prometheus.Counter
 	indexCacheTraverse        prometheus.Counter
 	indexCacheFailures        prometheus.Counter
@@ -112,6 +113,10 @@ func newSyncerMetrics(reg prometheus.Registerer) *syncerMetrics {
 		Name: "thanos_compact_group_compactions_total",
 		Help: "Total number of group compactions attempts.",
 	}, []string{"group"})
+	m.corruptedBlocks = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "thanos_compact_group_corrupted_blocks_detected_total",
+		Help: "Total number of corrupted blocks that have been detected during a run and skipped",
+	}, []string{"group"})
 	m.compactionFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "thanos_compact_group_compactions_failures_total",
 		Help: "Total number of failed group compactions.",
@@ -127,6 +132,7 @@ func newSyncerMetrics(reg prometheus.Registerer) *syncerMetrics {
 			m.garbageCollectionFailures,
 			m.garbageCollectionDuration,
 			m.compactions,
+			m.corruptedBlocks,
 			m.compactionFailures,
 		)
 	}
@@ -337,6 +343,7 @@ func (c *Syncer) Groups() (res []*Group, err error) {
 				c.acceptMalformedIndex,
 				c.metrics.compactions.WithLabelValues(GroupKey(*m)),
 				c.metrics.compactionFailures.WithLabelValues(GroupKey(*m)),
+				c.metrics.corruptedBlocks.WithLabelValues(GroupKey(*m)),
 				c.metrics.garbageCollectedBlocks,
 			)
 			if err != nil {
@@ -483,6 +490,7 @@ type Group struct {
 	acceptMalformedIndex        bool
 	compactions                 prometheus.Counter
 	compactionFailures          prometheus.Counter
+	corruptedBlocks             prometheus.Counter
 	groupGarbageCollectedBlocks prometheus.Counter
 }
 
@@ -495,6 +503,7 @@ func newGroup(
 	acceptMalformedIndex bool,
 	compactions prometheus.Counter,
 	compactionFailures prometheus.Counter,
+	corruptedBlocks prometheus.Counter,
 	groupGarbageCollectedBlocks prometheus.Counter,
 ) (*Group, error) {
 	if logger == nil {
@@ -509,6 +518,7 @@ func newGroup(
 		acceptMalformedIndex:        acceptMalformedIndex,
 		compactions:                 compactions,
 		compactionFailures:          compactionFailures,
+		corruptedBlocks:             corruptedBlocks,
 		groupGarbageCollectedBlocks: groupGarbageCollectedBlocks,
 	}
 	return g, nil
@@ -824,6 +834,7 @@ func (cg *Group) compact(ctx context.Context, dir string, comp tsdb.Compactor) (
 
 		if err := stats.PartiallyWrittenBlockErr(); err != nil {
 			level.Warn(cg.logger).Log("err", err.Error(), "msg", fmt.Sprintf("skipping block %s", pdir))
+			cg.corruptedBlocks.Inc()
 			continue
 		}
 
